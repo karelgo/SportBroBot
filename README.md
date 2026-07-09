@@ -88,6 +88,15 @@ intervals tomorrow?”*, or *“Summarize my last three runs.”*
 3. Restart, open the dashboard and click **Connect with Strava** — you sign
    in on Strava's own page and approve read-only access.
 
+Prefer to prove it from the terminal first? With the two env vars set, run:
+
+```bash
+.venv/bin/python scripts/verify_strava_login.py
+```
+
+It opens Strava's real sign-in page (via a temporary `localhost` callback),
+then prints your actual profile, stats and recent activities.
+
 Strava's default app rate limits are 200 requests / 15 min and 2,000 / day;
 SportBroBot's caching keeps normal MCP usage well under that.
 
