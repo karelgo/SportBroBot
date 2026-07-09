@@ -51,6 +51,11 @@ Then:
 3. **Copy your MCP link** and add it to your AI client — guides at
    [/mcp/setup](http://localhost:8000/mcp/setup).
 
+> **Want it hosted?** For the MCP link to work in Claude Desktop / claude.ai
+> from anywhere (and for Strava to redirect back to a real domain), deploy it.
+> A one-click-ish Railway guide (Dockerfile + `railway.json` included) is in
+> [docs/deploy-railway.md](docs/deploy-railway.md).
+
 ### Add to Claude Desktop
 
 Settings → Connectors → **Add custom connector**, name it `sportbrobot`, paste

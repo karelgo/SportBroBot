@@ -27,6 +27,22 @@ class Settings:
     strava_client_secret: str | None = None
 
 
+def _resolve_base_url() -> str:
+    """Public base URL, used to build the MCP link and Strava callback.
+
+    Explicit ``SPORTBRO_BASE_URL`` always wins. On Railway the public domain
+    isn't known until the first deploy, so fall back to the injected
+    ``RAILWAY_PUBLIC_DOMAIN`` to spare the operator a manual step.
+    """
+    explicit = os.environ.get("SPORTBRO_BASE_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway_domain:
+        return f"https://{railway_domain}".rstrip("/")
+    return "http://localhost:8000"
+
+
 def _load_or_create(path: Path, generator) -> str:
     if path.exists():
         return path.read_text().strip()
@@ -50,7 +66,7 @@ def get_settings() -> Settings:
     )
 
     return Settings(
-        base_url=os.environ.get("SPORTBRO_BASE_URL", "http://localhost:8000").rstrip("/"),
+        base_url=_resolve_base_url(),
         database_url=os.environ.get(
             "SPORTBRO_DATABASE_URL", f"sqlite:///{data_dir / 'sportbrobot.db'}"
         ),
