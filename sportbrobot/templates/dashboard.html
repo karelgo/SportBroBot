@@ -80,6 +80,56 @@
 
     <div class="card">
       <div class="card-head">
+        <h2>Strava</h2>
+        {% if strava_link %}
+          {% if strava_link.status == 'reauth_required' %}
+            <span class="badge badge-warn">Reauth required</span>
+          {% else %}
+            <span class="badge badge-ok">Connected</span>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-off">Not connected</span>
+        {% endif %}
+      </div>
+
+      {% if strava_link %}
+        <p class="card-lead">{{ strava_link.athlete_name or ('Athlete #' ~ strava_link.athlete_id) }}</p>
+        {% if strava_link.connected_at %}
+          <p class="muted small">Connected {{ strava_link.connected_at.strftime('%d %b %Y') }}</p>
+        {% endif %}
+        {% if strava_link.status == 'reauth_required' %}
+          <div class="alert alert-warn">
+            Strava says this link has expired — sign in at Strava again to refresh it.
+          </div>
+          <a class="btn btn-primary" href="/strava/connect">Reconnect Strava</a>
+        {% else %}
+          <p class="muted small">Your activities are available to your AI through the
+          <code>strava_*</code> MCP tools.</p>
+        {% endif %}
+        <div class="card-actions">
+          <form method="post" action="/strava/disconnect"
+                onsubmit="return confirm('Disconnect Strava? Access is revoked and the strava_* MCP tools stop returning data.');">
+            <button class="btn btn-danger-ghost btn-sm" type="submit">Disconnect</button>
+          </form>
+        </div>
+      {% elif strava_configured %}
+        <p class="guide-note">Sign in at Strava — no password is ever entered here.</p>
+        <a class="btn btn-primary" href="/strava/connect">Connect with Strava</a>
+        <p class="muted small" style="margin-top: 0.9rem;">
+          You'll be sent to strava.com to approve read-only access, then straight back.
+        </p>
+      {% else %}
+        <p class="guide-note">Strava sign-in needs an API application.</p>
+        <p class="muted small">
+          Create one at <span style="white-space: nowrap;">strava.com/settings/api</span>, then set
+          <code>SPORTBRO_STRAVA_CLIENT_ID</code> and <code>SPORTBRO_STRAVA_CLIENT_SECRET</code>
+          and restart the server.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
         <h2>Your MCP link</h2>
       </div>
       <p class="guide-note">Paste this URL into any MCP client. It carries your personal key — treat it like a password.</p>

@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import security
-from ..models import GarminLink, McpToken, User
+from ..models import GarminLink, McpToken, StravaLink, User
 from .deps import get_db, get_mcp_url, require_user, templates
 
 router = APIRouter()
@@ -142,7 +142,12 @@ def dashboard(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    from ..strava import service as strava_service
+
     link = _get_link(db, user.id)
+    strava_link = db.execute(
+        select(StravaLink).where(StravaLink.user_id == user.id)
+    ).scalar_one_or_none()
     mcp_url = get_mcp_url(db, user)
     stats, stats_error = _build_stats(db, user, link)
     return templates.TemplateResponse(
@@ -151,6 +156,8 @@ def dashboard(
         {
             "user": user,
             "link": link,
+            "strava_link": strava_link,
+            "strava_configured": strava_service.is_configured(),
             "mcp_url": mcp_url,
             "stats": stats,
             "stats_error": stats_error,

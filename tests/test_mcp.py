@@ -33,6 +33,10 @@ EXPECTED_TOOLS = {
     "get_heart_rate",
     "get_race_predictions",
     "get_body_composition",
+    "strava_get_athlete",
+    "strava_get_athlete_stats",
+    "strava_list_activities",
+    "strava_get_activity",
 }
 
 PROFILE = {"display_name": "davidk", "full_name": "David K", "unit_system": "metric"}
@@ -225,7 +229,7 @@ async def _call_tool(url: str, name: str, arguments: dict):
             return await session.call_tool(name, arguments)
 
 
-def test_list_tools_exposes_all_14(mcp_server):
+def test_list_tools_exposes_all_tools(mcp_server):
     base, token = mcp_server
     names = asyncio.run(_list_tool_names(f"{base}/mcp?apiKey={token}"))
     assert names == EXPECTED_TOOLS

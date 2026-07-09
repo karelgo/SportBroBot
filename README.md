@@ -14,12 +14,17 @@ readiness — inside Claude, ChatGPT, Cursor, or any MCP client.
 - **Garmin Connect integration** — sign in once (MFA supported); SportBroBot
   exchanges your credentials for OAuth tokens and never stores your password.
   Tokens are Fernet-encrypted at rest and refresh automatically.
+- **Strava integration (real OAuth)** — users click "Connect with Strava" and
+  sign in on strava.com itself; SportBroBot receives read-only tokens and
+  refreshes them automatically. See [Strava setup](#strava-setup).
 - **A personal MCP server link** — `https://your-host/mcp?apiKey=sbb_...` —
-  exposing **14 read-only tools** over MCP streamable HTTP:
-  `get_athlete_profile`, `get_daily_summary`, `list_activities`,
+  exposing **18 read-only tools** over MCP streamable HTTP: 14 Garmin tools
+  (`get_athlete_profile`, `get_daily_summary`, `list_activities`,
   `get_activity_details`, `get_sleep`, `get_hrv`, `get_training_status`,
   `get_training_readiness`, `get_body_battery`, `get_stress`, `get_steps`,
-  `get_heart_rate`, `get_race_predictions`, `get_body_composition`.
+  `get_heart_rate`, `get_race_predictions`, `get_body_composition`) plus 4
+  Strava tools (`strava_get_athlete`, `strava_get_athlete_stats`,
+  `strava_list_activities`, `strava_get_activity`).
 - **A dashboard** with your Garmin link status, quick stats, and your MCP URL
   with one-click copy and token rotation.
 - **Per-client setup guides** at `/mcp/setup` — step-by-step instructions for
@@ -73,6 +78,35 @@ intervals tomorrow?”*, or *“Summarize my last three runs.”*
 
 ![Claude Desktop setup guide](docs/screenshots/setup_claude_desktop.png)
 
+### Strava setup
+
+1. Create an API application at [strava.com/settings/api](https://www.strava.com/settings/api)
+   (any Strava account can — it's instant and free). Set **Authorization
+   Callback Domain** to your deployment's host (`localhost` for local use).
+2. Put the Client ID and Client Secret in the environment:
+   `SPORTBRO_STRAVA_CLIENT_ID` / `SPORTBRO_STRAVA_CLIENT_SECRET`.
+3. Restart, open the dashboard and click **Connect with Strava** — you sign
+   in on Strava's own page and approve read-only access.
+
+Strava's default app rate limits are 200 requests / 15 min and 2,000 / day;
+SportBroBot's caching keeps normal MCP usage well under that.
+
+### Verifying a Garmin login end to end
+
+Garmin has no self-serve API; SportBroBot signs in with the user's
+credentials against Garmin's SSO (same endpoints the Connect apps use).
+Garmin's bot protection often blocks datacenter/VPN IPs, so verify from a
+normal connection:
+
+```bash
+.venv/bin/python scripts/verify_garmin_login.py
+```
+
+It performs a real login (MFA supported) and pulls your profile, daily
+summary, sleep and recent activities through the exact code paths the app
+uses. For the official partner route (real "Sign in with Garmin" OAuth,
+webhooks), see [docs/garmin-partner-access.md](docs/garmin-partner-access.md).
+
 ## Configuration
 
 Everything works with zero config for local use (secrets are generated and
@@ -85,6 +119,8 @@ persisted under `./data/`). For deployments, see [.env.example](.env.example):
 | `SPORTBRO_SECRET_KEY` | Session cookie signing key | generated → `data/secret_key` |
 | `SPORTBRO_FERNET_KEY` | Encryption key for Garmin/MCP tokens | generated → `data/fernet_key` |
 | `SPORTBRO_DATA_DIR` | Where the DB and generated keys live | `./data` |
+| `SPORTBRO_STRAVA_CLIENT_ID` | Strava API app client id | unset (Strava card explains setup) |
+| `SPORTBRO_STRAVA_CLIENT_SECRET` | Strava API app client secret | unset |
 
 ## Security model
 

@@ -118,14 +118,28 @@ long minute-by-minute series are dropped or downsampled (≤ 50 points).
 
 ## MCP tools
 
-All read-only, sync `def`s (FastMCP runs them in a threadpool), operating on
-the authenticated user from the ContextVar. Dates are `YYYY-MM-DD` strings
+All read-only `async def`s that offload blocking I/O to a worker thread
+(FastMCP 1.x runs sync tools on the event loop), operating on the
+authenticated user from the ContextVar. Dates are `YYYY-MM-DD` strings
 defaulting to today (server date).
 
-`get_athlete_profile`, `get_daily_summary`, `list_activities`,
+Garmin: `get_athlete_profile`, `get_daily_summary`, `list_activities`,
 `get_activity_details`, `get_sleep`, `get_hrv`, `get_training_status`,
 `get_training_readiness`, `get_body_battery`, `get_stress`, `get_steps`,
 `get_heart_rate`, `get_race_predictions`, `get_body_composition`.
+
+Strava: `strava_get_athlete`, `strava_get_athlete_stats`,
+`strava_list_activities`, `strava_get_activity`.
+
+## Strava integration
+
+`strava/service.py` implements the self-serve Strava OAuth API: the operator
+creates an API app (strava.com/settings/api) and sets
+`SPORTBRO_STRAVA_CLIENT_ID/SECRET`; users authorize at Strava's own sign-in
+page (`web/strava.py`: `/strava/connect` → strava.com → `/strava/callback`
+with a signed `state`). Access/refresh tokens live Fernet-encrypted on
+`strava_links`; access tokens refresh automatically near expiry and rotated
+refresh tokens are persisted. Scope: `read,activity:read_all,profile:read_all`.
 
 ## Web routes
 

@@ -26,10 +26,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 _INSTRUCTIONS = """\
-SportBroBot gives AI assistants read-only access to one athlete's Garmin
-Connect data. Tools cover the athlete profile, daily wellness (sleep, HRV,
-stress, body battery, steps, heart rate), training state (training status,
-readiness, race predictions), activities and body composition.
+SportBroBot gives AI assistants read-only access to one athlete's training
+data. Garmin Connect tools cover the athlete profile, daily wellness (sleep,
+HRV, stress, body battery, steps, heart rate), training state (training
+status, readiness, race predictions), activities and body composition. The
+strava_* tools cover the athlete's Strava profile, lifetime/year-to-date
+stats and activities (with splits and best efforts).
 
 Every tool operates on the account that owns the MCP token used to connect —
 no athlete id or credentials are ever passed as arguments. Dates are
@@ -63,6 +65,14 @@ _NOT_LINKED_MSG = (
 _REAUTH_MSG = (
     "The Garmin connection has expired. Open the SportBroBot dashboard and "
     "reconnect your Garmin account, then try again."
+)
+_STRAVA_NOT_LINKED_MSG = (
+    "No Strava account is linked yet. Open the SportBroBot dashboard and "
+    "click 'Connect with Strava', then try again."
+)
+_STRAVA_REAUTH_MSG = (
+    "The Strava connection has expired. Open the SportBroBot dashboard and "
+    "reconnect Strava, then try again."
 )
 
 
@@ -296,6 +306,46 @@ async def _fetch(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
     return await to_thread.run_sync(lambda: _fetch_sync(cache_key, ttl, call))
 
 
+def _fetch_strava_sync(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
+    """Strava twin of :func:`_fetch_sync` (same caching, Strava error mapping)."""
+    from ..db import db_session
+    from ..garmin.service import cached
+    from ..strava import service as strava
+
+    user_id = current_user_id()
+
+    def produce() -> Any:
+        with db_session() as db:
+            return call(strava.get_client_for_user(db, user_id))
+
+    try:
+        return cached(user_id, cache_key, ttl, produce)
+    except strava.StravaNotLinked:
+        raise ToolError(_STRAVA_NOT_LINKED_MSG) from None
+    except strava.StravaAuthRequired:
+        raise ToolError(_STRAVA_REAUTH_MSG) from None
+    except strava.StravaNotConfigured as exc:
+        raise ToolError(str(exc)) from None
+    except ValueError as exc:
+        raise ToolError(f"Invalid arguments: {exc}") from None
+
+
+async def _fetch_strava(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
+    return await to_thread.run_sync(lambda: _fetch_strava_sync(cache_key, ttl, call))
+
+
+def _date_to_epoch(value: str | None, param: str, end_of_day: bool = False) -> int | None:
+    """Convert a YYYY-MM-DD date to a UTC epoch bound for Strava's after/before."""
+    if value is None:
+        return None
+    day = _norm_date(value, param)
+    from datetime import timezone
+
+    parsed = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    epoch = int(parsed.timestamp())
+    return epoch + 86400 if end_of_day else epoch
+
+
 # --------------------------------------------------------------------------
 # Tools
 # --------------------------------------------------------------------------
@@ -487,6 +537,64 @@ async def get_body_composition(start_date: str | None = None, end_date: str | No
     end = _norm_date(end_date, "end_date") if end_date is not None else start
     return await _fetch(
         f"body_composition:{start}:{end}", DAILY_TTL, lambda g: g.get_body_composition(start, end)
+    )
+
+
+@mcp.tool()
+async def strava_get_athlete() -> dict[str, Any]:
+    """Get the athlete's Strava profile: name, location, sex, weight, FTP and
+    account details. Uses the Strava account linked on the dashboard."""
+    return await _fetch_strava("strava:athlete", PROFILE_TTL, lambda s: s.get_athlete())
+
+
+@mcp.tool()
+async def strava_get_athlete_stats() -> dict[str, Any]:
+    """Get the athlete's Strava totals: recent (last 4 weeks), year-to-date and
+    all-time ride/run/swim counts, distance, moving time and elevation gain,
+    plus biggest ride and climb."""
+    return await _fetch_strava(
+        "strava:stats", DAILY_TTL, lambda s: s.get_athlete_stats()
+    )
+
+
+@mcp.tool()
+async def strava_list_activities(
+    limit: int = 10,
+    after_date: str | None = None,
+    before_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """List the athlete's Strava activities, most recent first: name, sport,
+    date, distance, times, elevation, heart rate, power and cadence. Use
+    strava_get_activity for splits and best efforts.
+
+    Args:
+        limit: Maximum number of activities to return (default 10, max 200).
+        after_date: Only activities on/after this 'YYYY-MM-DD' date (UTC).
+        before_date: Only activities on/before this 'YYYY-MM-DD' date (UTC).
+    """
+    if limit < 1:
+        raise ToolError("limit must be >= 1.")
+    after = _date_to_epoch(after_date, "after_date")
+    before = _date_to_epoch(before_date, "before_date", end_of_day=True)
+    return await _fetch_strava(
+        f"strava:activities:{limit}:{after}:{before}",
+        ACTIVITY_TTL,
+        lambda s: s.list_activities(limit, after, before),
+    )
+
+
+@mcp.tool()
+async def strava_get_activity(activity_id: int | str) -> dict[str, Any]:
+    """Get one Strava activity in depth: description, calories, device,
+    per-kilometre splits and best efforts.
+
+    Args:
+        activity_id: Activity id as returned by strava_list_activities.
+    """
+    return await _fetch_strava(
+        f"strava:activity:{activity_id}",
+        ACTIVITY_TTL,
+        lambda s: s.get_activity(activity_id),
     )
 
 

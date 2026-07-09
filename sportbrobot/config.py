@@ -23,6 +23,8 @@ class Settings:
     secret_key: str
     fernet_key: str
     data_dir: Path
+    strava_client_id: str | None = None
+    strava_client_secret: str | None = None
 
 
 def _load_or_create(path: Path, generator) -> str:
@@ -55,4 +57,6 @@ def get_settings() -> Settings:
         secret_key=secret_key,
         fernet_key=fernet_key,
         data_dir=data_dir,
+        strava_client_id=os.environ.get("SPORTBRO_STRAVA_CLIENT_ID") or None,
+        strava_client_secret=os.environ.get("SPORTBRO_STRAVA_CLIENT_SECRET") or None,
     )

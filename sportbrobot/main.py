@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
 from .mcp_server.server import build_mcp_asgi_app, mcp_lifespan
-from .web import auth, dashboard, landing
+from .web import auth, dashboard, landing, strava
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -54,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(landing.router)
     app.include_router(auth.router)
     app.include_router(dashboard.router)
+    app.include_router(strava.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
