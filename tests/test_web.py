@@ -386,10 +386,13 @@ def test_fetch_stats_shapes_dashboard_dict(monkeypatch):
 
 
 def test_mcp_setup_pages(client):
-    assert client.get("/mcp/setup").status_code == 200
+    hub = client.get("/mcp/setup")
+    assert hub.status_code == 200
     for slug in ("claude-desktop", "claude-code", "cursor", "chatgpt"):
+        assert f'href="/mcp/setup/{slug}"' in hub.text  # cards link by slug
         response = client.get(f"/mcp/setup/{slug}")
         assert response.status_code == 200, slug
+    assert "Claude Desktop" in hub.text
     assert client.get("/mcp/setup/not-a-client").status_code == 404
 
 

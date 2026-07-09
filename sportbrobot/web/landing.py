@@ -10,11 +10,11 @@ from .deps import get_current_user, get_db, get_mcp_url, templates
 
 router = APIRouter()
 
-CLIENTS: list[tuple[str, str]] = [
-    ("claude-desktop", "Claude Desktop"),
-    ("claude-code", "Claude Code"),
-    ("cursor", "Cursor"),
-    ("chatgpt", "ChatGPT"),
+CLIENTS: list[dict[str, str]] = [
+    {"slug": "claude-desktop", "name": "Claude Desktop"},
+    {"slug": "claude-code", "name": "Claude Code"},
+    {"slug": "cursor", "name": "Cursor"},
+    {"slug": "chatgpt", "name": "ChatGPT"},
 ]
 
 
@@ -44,7 +44,7 @@ def mcp_setup_client(
     user: User | None = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    names = dict(CLIENTS)
+    names = {c["slug"]: c["name"] for c in CLIENTS}
     if client not in names:
         raise HTTPException(status_code=404, detail="Unknown MCP client")
     mcp_url = get_mcp_url(db, user) if user is not None else None
