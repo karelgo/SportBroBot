@@ -1,0 +1,58 @@
+"""Application settings, loaded lazily from SPORTBRO_* environment variables.
+
+Secrets (session signing key, Fernet key) are generated on first run and
+persisted under the data directory so restarts don't invalidate sessions or
+encrypted Garmin tokens.
+"""
+
+from __future__ import annotations
+
+import os
+import secrets
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+from cryptography.fernet import Fernet
+
+
+@dataclass(frozen=True)
+class Settings:
+    base_url: str
+    database_url: str
+    secret_key: str
+    fernet_key: str
+    data_dir: Path
+
+
+def _load_or_create(path: Path, generator) -> str:
+    if path.exists():
+        return path.read_text().strip()
+    value = generator()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value)
+    path.chmod(0o600)
+    return value
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    data_dir = Path(os.environ.get("SPORTBRO_DATA_DIR", "./data")).resolve()
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    secret_key = os.environ.get("SPORTBRO_SECRET_KEY") or _load_or_create(
+        data_dir / "secret_key", lambda: secrets.token_urlsafe(48)
+    )
+    fernet_key = os.environ.get("SPORTBRO_FERNET_KEY") or _load_or_create(
+        data_dir / "fernet_key", lambda: Fernet.generate_key().decode()
+    )
+
+    return Settings(
+        base_url=os.environ.get("SPORTBRO_BASE_URL", "http://localhost:8000").rstrip("/"),
+        database_url=os.environ.get(
+            "SPORTBRO_DATABASE_URL", f"sqlite:///{data_dir / 'sportbrobot.db'}"
+        ),
+        secret_key=secret_key,
+        fernet_key=fernet_key,
+        data_dir=data_dir,
+    )

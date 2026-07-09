@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Setup guides — SportBroBot{% endblock %}
+
+{% block content %}
+<section class="container page">
+  <div class="page-head">
+    <h1>Set up SportBroBot in your AI</h1>
+    <p class="guide-note" style="max-width: 60ch;">
+      Every SportBroBot account gets a personal MCP server URL. Add it to your
+      favorite client once and it can read your Garmin data — sleep, HRV,
+      activities, readiness — whenever you ask.
+    </p>
+  </div>
+
+  {% if mcp_url %}
+    <div class="card" style="margin-bottom: 0.5rem;">
+      <div class="card-head">
+        <h2>Your personal MCP URL</h2>
+        <span class="badge badge-ok">Logged in</span>
+      </div>
+      <div class="codebox codebox-line">
+        <code id="mcp-url">{{ mcp_url }}</code>
+        <button class="copy-btn" type="button" onclick="copyToClipboard('mcp-url', this)">Copy</button>
+      </div>
+      <p class="muted small" style="margin: 0;">The guides below are personalized with this URL. It carries your key — treat it like a password.</p>
+    </div>
+  {% else %}
+    <div class="alert alert-info">
+      You're not logged in, so the guides below use a placeholder URL.
+      <a href="/login">Log in</a> to see them with your personal MCP link filled in.
+    </div>
+  {% endif %}
+
+  {% set client_meta = {
+    'claude-desktop': ('Claude Desktop', 'Add a custom connector in Settings, or drop a snippet in claude_desktop_config.json.'),
+    'claude-code': ('Claude Code', 'One `claude mcp add` command in your terminal and you are done.'),
+    'cursor': ('Cursor', 'Add a remote MCP server in Cursor settings with a three-line JSON snippet.'),
+    'chatgpt': ('ChatGPT', 'Developer-mode connector for paid ChatGPT plans.')
+  } %}
+  <div class="client-grid">
+    {% for c in clients %}
+      {% set slug = c.slug if c.slug is defined else c %}
+      {% set meta = client_meta.get(slug, (slug, 'Point it at your SportBroBot MCP URL.')) %}
+      {% set name = c.name if c.name is defined else meta[0] %}
+      <a class="card client-card" href="/mcp/setup/{{ slug }}">
+        <h2>{{ name }}</h2>
+        <p>{{ meta[1] }}</p>
+        <span class="client-go">Open the guide &rarr;</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

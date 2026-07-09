@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SportBroBot — Your training data, in every AI you talk to{% endblock %}</title>
+  <meta name="description" content="Connect your Garmin once and get a personal MCP link. Ask Claude, ChatGPT or Cursor about your sleep, HRV and workouts.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f14'/%3E%3Cpolyline points='5 18.5 10.5 18.5 13.5 9.5 18 24 20.5 15.5 27 15.5' fill='none' stroke='%23a3e635' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container nav">
+    <a class="brand" href="/">
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="30" height="30" rx="9" fill="rgba(163,230,53,0.1)" stroke="#a3e635" stroke-opacity="0.45"/>
+        <polyline points="6 18.5 11 18.5 14 9.5 18.5 24 21 15.5 26 15.5" stroke="#a3e635" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>SportBro<em>Bot</em></span>
+    </a>
+    <nav class="nav-links">
+      <a href="/#how">How it works</a>
+      <a href="/mcp/setup">Setup guides</a>
+    </nav>
+    <div class="nav-actions">
+      {% if user %}
+        <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
+        <form method="post" action="/logout">
+          <button class="btn btn-link" type="submit">Log out</button>
+        </form>
+      {% else %}
+        <a class="btn btn-link" href="/login">Log in</a>
+        <a class="btn btn-primary" href="/signup">Sign up</a>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="30" height="30" rx="9" fill="rgba(163,230,53,0.1)" stroke="#a3e635" stroke-opacity="0.45"/>
+            <polyline points="6 18.5 11 18.5 14 9.5 18.5 24 21 15.5 26 15.5" stroke="#a3e635" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>SportBro<em>Bot</em></span>
+        </a>
+        <p>Your training data, in every AI you talk to. Self-hosted, open source, read-only by design.</p>
+      </div>
+      <div class="footer-links">
+        <div>
+          <h3>Product</h3>
+          <ul>
+            <li><a href="/#how">How it works</a></li>
+            <li><a href="/mcp/setup">Setup guides</a></li>
+            <li><a href="/signup">Sign up</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Project</h3>
+          <ul>
+            <li><a href="https://github.com/sportbrobot/sportbrobot" rel="noopener">Source on GitHub</a></li>
+            <li><a href="/healthz">Status</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-legal">
+      SportBroBot is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Garmin Ltd.
+    </div>
+  </div>
+</footer>
+
+<script>
+function copyToClipboard(id, btn) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var text = el.innerText || el.textContent || "";
+  function done() {
+    if (!btn) return;
+    var original = btn.textContent;
+    btn.textContent = "Copied!";
+    btn.classList.add("copied");
+    setTimeout(function () {
+      btn.textContent = original;
+      btn.classList.remove("copied");
+    }, 1600);
+  }
+  function fallback() {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      done();
+    } catch (e) { /* nothing left to try */ }
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fallback);
+  } else {
+    fallback();
+  }
+}
+</script>
+</body>
+</html>

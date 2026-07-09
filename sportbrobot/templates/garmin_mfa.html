@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Garmin verification — SportBroBot{% endblock %}
+
+{% block content %}
+<section class="auth-wrap">
+  <div class="card auth-card">
+    <h1>Two-step verification</h1>
+    <p class="auth-sub">Enter the code Garmin sent you — check your email or authenticator app.</p>
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/garmin/mfa" class="stack">
+      <input type="hidden" name="pending_id" value="{{ pending_id }}">
+      <label class="field">
+        <span>Verification code</span>
+        <input type="text" name="mfa_code" class="mfa-input" required autofocus
+               inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="······">
+      </label>
+      <button class="btn btn-primary btn-block" type="submit">Verify &amp; connect</button>
+    </form>
+    <p class="muted small" style="margin-top: 1.25rem;">
+      Codes expire quickly. If verification fails, head back to the
+      <a href="/dashboard">dashboard</a> and start the connection again.
+    </p>
+  </div>
+</section>
+{% endblock %}

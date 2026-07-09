@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — SportBroBot{% endblock %}
+
+{% block content %}
+<section class="container page">
+  {% if flash %}
+    <div class="alert alert-flash">{{ flash }}</div>
+  {% endif %}
+
+  <div class="page-head">
+    <h1>Dashboard</h1>
+    {% if user %}<p class="muted">Signed in as {{ user.email }}</p>{% endif %}
+  </div>
+
+  <div class="dash-grid">
+    <div class="card">
+      <div class="card-head">
+        <h2>Garmin Connect</h2>
+        {% if link %}
+          {% if link.status == 'reauth_required' %}
+            <span class="badge badge-warn">Reauth required</span>
+          {% else %}
+            <span class="badge badge-ok">Connected</span>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-off">Not connected</span>
+        {% endif %}
+      </div>
+
+      {% if link %}
+        <p class="card-lead">{{ link.display_name or link.garmin_email }}</p>
+        {% if link.connected_at %}
+          <p class="muted small">Connected {{ link.connected_at.strftime('%d %b %Y') }}</p>
+        {% endif %}
+
+        {% if link.status == 'reauth_required' %}
+          <div class="alert alert-warn">
+            Garmin says this link has expired. Reconnect with your credentials to
+            refresh it — they're used once and never stored.
+          </div>
+          <form method="post" action="/garmin/connect" class="stack">
+            <label class="field">
+              <span>Garmin email</span>
+              <input type="email" name="garmin_email" required autocomplete="username" value="{{ link.garmin_email }}">
+            </label>
+            <label class="field">
+              <span>Garmin password</span>
+              <input type="password" name="garmin_password" required autocomplete="current-password">
+            </label>
+            <button class="btn btn-primary" type="submit">Reconnect Garmin</button>
+          </form>
+        {% endif %}
+
+        <div class="card-actions">
+          <form method="post" action="/garmin/disconnect"
+                onsubmit="return confirm('Disconnect Garmin? The stored tokens are deleted and your MCP tools stop returning data.');">
+            <button class="btn btn-danger-ghost btn-sm" type="submit">Disconnect</button>
+          </form>
+        </div>
+      {% else %}
+        <p class="guide-note">Connect your Garmin account to power your MCP tools.</p>
+        <form method="post" action="/garmin/connect" class="stack">
+          <label class="field">
+            <span>Garmin email</span>
+            <input type="email" name="garmin_email" required autocomplete="username" placeholder="you@example.com">
+          </label>
+          <label class="field">
+            <span>Garmin password</span>
+            <input type="password" name="garmin_password" required autocomplete="current-password" placeholder="Your Garmin Connect password">
+          </label>
+          <button class="btn btn-primary" type="submit">Connect Garmin</button>
+        </form>
+        <p class="muted small" style="margin-top: 0.9rem;">
+          Credentials are used once to obtain tokens; never stored. If your
+          account has two-step verification, you'll be asked for the code next.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Your MCP link</h2>
+      </div>
+      <p class="guide-note">Paste this URL into any MCP client. It carries your personal key — treat it like a password.</p>
+      <div class="codebox codebox-line">
+        <code id="mcp-url">{{ mcp_url }}</code>
+        <button class="copy-btn" type="button" onclick="copyToClipboard('mcp-url', this)">Copy</button>
+      </div>
+      <p class="muted small">Add it to Claude in two minutes — <a href="/mcp/setup">setup guides</a>.</p>
+      <div class="card-actions">
+        <form method="post" action="/mcp/rotate"
+              onsubmit="return confirm('Rotate your MCP token? The current link stops working immediately in every client that uses it.');">
+          <button class="btn btn-ghost btn-sm" type="submit">Rotate token</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card dash-wide">
+      <div class="card-head">
+        <h2>Quick stats</h2>
+        <span class="muted small">today, via Garmin</span>
+      </div>
+      {% if stats %}
+        <div class="stat-grid">
+          <div class="stat">
+            <span class="stat-label">Steps</span>
+            <span class="stat-value">{% if stats.steps_today is not none %}{{ '{:,}'.format(stats.steps_today) }}{% else %}&mdash;{% endif %}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Resting HR</span>
+            <span class="stat-value">{% if stats.resting_hr is not none %}{{ stats.resting_hr }}<span class="unit">bpm</span>{% else %}&mdash;{% endif %}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Sleep</span>
+            <span class="stat-value">{% if stats.sleep_hours is not none %}{{ stats.sleep_hours }}<span class="unit">h</span>{% else %}&mdash;{% endif %}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Body Battery</span>
+            <span class="stat-value">{% if stats.body_battery is not none %}{{ stats.body_battery }}{% else %}&mdash;{% endif %}</span>
+          </div>
+        </div>
+        {% if stats.last_activity %}
+          <div class="last-activity">
+            <span class="stat-label" style="margin: 0;">Last activity</span>
+            <span class="name">{{ stats.last_activity.name }}</span>
+            <span class="meta">
+              {% if stats.last_activity.type %}{{ stats.last_activity.type }}{% endif %}
+              {% if stats.last_activity.date %} &middot; {{ stats.last_activity.date }}{% endif %}
+              {% if stats.last_activity.distance_km is not none %} &middot; {{ stats.last_activity.distance_km }} km{% endif %}
+              {% if stats.last_activity.duration_min is not none %} &middot; {{ stats.last_activity.duration_min }} min{% endif %}
+            </span>
+          </div>
+        {% endif %}
+      {% elif stats_error %}
+        <p class="muted">{{ stats_error }}</p>
+      {% else %}
+        <p class="muted">Connect Garmin above and your numbers show up here.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

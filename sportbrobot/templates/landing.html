@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero container">
+  <span class="eyebrow"><span class="dot"></span> Open source · Self-hosted · MCP</span>
+  <h1>Your training data, in <span class="hl">every AI</span> you talk to.</h1>
+  <p class="sub">
+    Connect your Garmin once and get a personal MCP link. Claude, ChatGPT and
+    Cursor can read your sleep, HRV and workouts — and actually coach you on
+    your real numbers, not vibes.
+  </p>
+  <div class="hero-actions">
+    <a class="btn btn-primary btn-lg" href="/signup">Connect your Garmin</a>
+    <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+  </div>
+  <p class="trust-line">Read-only &middot; Encrypted at rest &middot; Disconnect anytime</p>
+</section>
+
+<section class="section" id="how">
+  <div class="container">
+    <div class="section-head">
+      <h2>How it works</h2>
+      <p>Three steps between you and an AI that knows your training.</p>
+    </div>
+    <div class="steps">
+      <div class="card step">
+        <span class="step-num">01</span>
+        <h3>Connect Garmin</h3>
+        <p>Sign in with your Garmin Connect account. We exchange your credentials
+        for OAuth tokens and never store your password — the tokens are encrypted
+        at rest.</p>
+      </div>
+      <div class="card step">
+        <span class="step-num">02</span>
+        <h3>Grab your MCP link</h3>
+        <p>Your dashboard shows a personal MCP server URL. Copy it once — it
+        works in any MCP client, from Claude Desktop to Cursor.</p>
+      </div>
+      <div class="card step">
+        <span class="step-num">03</span>
+        <h3>Ask your AI anything</h3>
+        <p>Sleep, HRV, training load, race predictions. Your assistant pulls the
+        numbers straight from your data and answers like a coach.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head">
+      <h2>It feels like this</h2>
+      <p>Your assistant calls SportBroBot's tools behind the scenes and answers with your actual data.</p>
+    </div>
+    <div class="card chat-card">
+      <div class="bubble bubble-user">
+        How did I sleep this week? Am I ready for intervals tomorrow?
+      </div>
+      <div class="tool-trace">&rarr; <span>get_sleep</span> · <span>get_hrv</span> · <span>get_training_readiness</span></div>
+      <div class="bubble bubble-ai">
+        <p>You averaged <strong>7h 12m</strong> this week with a mean sleep score
+        of <strong>82</strong> — solid. Last night was your best: 7h 41m, sleep
+        score <strong>86</strong>, overnight HRV <strong>58 ms</strong> (right on
+        your 4-week baseline), and you woke up with a Body Battery of
+        <strong>91</strong>.</p>
+        <p>Training readiness is high and yesterday was easy volume, so yes —
+        go do the intervals. Keep the warm-up honest and I'd cap it at
+        5&times;4 min at threshold given Tuesday's tempo run.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <h2>Integrations</h2>
+      <p>Garmin Connect today. More sources on the roadmap.</p>
+    </div>
+    <div class="chips">
+      <span class="chip chip-live"><span class="chip-dot"></span> Garmin Connect <span class="chip-tag">LIVE</span></span>
+      <span class="chip chip-soon">Strava <span class="chip-tag">soon</span></span>
+      <span class="chip chip-soon">Polar <span class="chip-tag">soon</span></span>
+      <span class="chip chip-soon">Whoop <span class="chip-tag">soon</span></span>
+      <span class="chip chip-soon">Oura <span class="chip-tag">soon</span></span>
+      <span class="chip chip-soon">Apple Health <span class="chip-tag">soon</span></span>
+      <span class="chip chip-soon">COROS <span class="chip-tag">soon</span></span>
+    </div>
+  </div>
+</section>
+
+<section class="section section-alt">
+  <div class="container mcp-explain">
+    <div>
+      <h2>One link. Every AI.</h2>
+      <p class="lead">
+        SportBroBot speaks <strong>MCP</strong> — the open Model Context Protocol.
+        Paste your personal URL as a custom connector or drop it into a config
+        file, and your assistant gets fourteen read-only tools over your
+        training data.
+      </p>
+      <ul class="client-list">
+        <li>Claude Desktop</li>
+        <li>Claude Code</li>
+        <li>Cursor</li>
+        <li>ChatGPT</li>
+      </ul>
+      <a class="btn btn-ghost" href="/mcp/setup">Step-by-step setup guides &rarr;</a>
+    </div>
+    <div class="codebox">
+      <button class="copy-btn" type="button" onclick="copyToClipboard('landing-config', this)">Copy</button>
+      <pre><code id="landing-config">{
+  "mcpServers": {
+    "sportbrobot": {
+      "url": "https://your-host/mcp?apiKey=sbb_..."
+    }
+  }
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <h2>Questions, answered straight</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>Is my Garmin password stored?</summary>
+        <p>No. Your credentials are used once to obtain OAuth tokens from Garmin,
+        then discarded. Only the tokens are kept, encrypted at rest with a key
+        that never leaves your server. Disconnecting deletes them.</p>
+      </details>
+      <details>
+        <summary>What can the AI actually see?</summary>
+        <p>Read-only training data: sleep, HRV, activities, steps, heart rate,
+        Body Battery, stress, training status and readiness, race predictions
+        and body composition. There is no tool that writes to — or changes
+        anything on — your Garmin account.</p>
+      </details>
+      <details>
+        <summary>Is this an official Garmin product?</summary>
+        <p>No. SportBroBot is an independent open-source project and is not
+        affiliated with, endorsed by, or sponsored by Garmin. It talks to
+        Garmin Connect the same way the official apps do.</p>
+      </details>
+      <details>
+        <summary>Can I self-host it?</summary>
+        <p>Yes — that's the point. It's a single Python service with a SQLite
+        database. Run it on your own machine or a small VPS and your data never
+        touches anyone else's infrastructure.</p>
+      </details>
+      <details>
+        <summary>What is MCP?</summary>
+        <p>The Model Context Protocol is an open standard that lets AI
+        assistants connect to external tools and data. Claude, ChatGPT, Cursor
+        and a growing list of clients support it — which is why one SportBroBot
+        link works everywhere.</p>
+      </details>
+      <details>
+        <summary>Can I revoke access?</summary>
+        <p>Anytime. Rotate your MCP token and the old link stops working
+        immediately. Disconnect Garmin and the stored tokens are deleted on the
+        spot.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="cta-band">
+  <div class="container">
+    <h2>Your coach already lives in your chat window. Give it your numbers.</h2>
+    <div class="hero-actions">
+      <a class="btn btn-primary btn-lg" href="/signup">Connect your Garmin</a>
+      <a class="btn btn-ghost btn-lg" href="/mcp/setup">Read the setup guides</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

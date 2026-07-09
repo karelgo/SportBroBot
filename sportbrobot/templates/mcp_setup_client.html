@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}{{ client_name }} setup — SportBroBot{% endblock %}
+
+{% block content %}
+{% set url = mcp_url or 'https://YOUR-HOST/mcp?apiKey=YOUR_API_KEY' %}
+<section class="container page guide">
+  <p class="crumbs"><a href="/mcp/setup">Setup guides</a> / {{ client_name }}</p>
+  <h1>Use SportBroBot in {{ client_name }}</h1>
+
+  {% if mcp_url %}
+    <p class="guide-note">The snippets below already contain your personal MCP URL — copy and paste as-is.</p>
+  {% else %}
+    <div class="alert alert-info">
+      You're not logged in, so the snippets use a placeholder.
+      <a href="/login">Log in</a> to get them pre-filled with your real MCP URL,
+      or replace <span class="kbd">YOUR-HOST</span> and <span class="kbd">YOUR_API_KEY</span> yourself.
+    </div>
+  {% endif %}
+
+  {% if client == 'claude-desktop' %}
+
+    <h2>Option A — custom connector (recommended)</h2>
+    <ol class="steps-list">
+      <li>
+        <p>Open Claude Desktop and go to <span class="kbd">Settings</span> &rarr; <span class="kbd">Connectors</span>.</p>
+      </li>
+      <li>
+        <p>Click <span class="kbd">Add custom connector</span>.</p>
+      </li>
+      <li>
+        <p>Name it <span class="kbd">sportbrobot</span> and paste your MCP URL:</p>
+        <div class="codebox codebox-line">
+          <code id="cd-url">{{ url }}</code>
+          <button class="copy-btn" type="button" onclick="copyToClipboard('cd-url', this)">Copy</button>
+        </div>
+      </li>
+      <li>
+        <p>Save. In a new chat, open the tools menu — you should see SportBroBot's tools listed.</p>
+      </li>
+    </ol>
+
+    <h2>Option B — config file</h2>
+    <ol class="steps-list">
+      <li>
+        <p>Open <span class="kbd">claude_desktop_config.json</span>:</p>
+        <p class="muted small">
+          macOS: <span class="kbd">~/Library/Application Support/Claude/claude_desktop_config.json</span><br>
+          Windows: <span class="kbd">%APPDATA%\Claude\claude_desktop_config.json</span>
+        </p>
+      </li>
+      <li>
+        <p>Add SportBroBot under <span class="kbd">mcpServers</span> (Claude Desktop's config route uses <span class="kbd">mcp-remote</span> to bridge to remote servers):</p>
+        <div class="codebox">
+          <button class="copy-btn" type="button" onclick="copyToClipboard('cd-config', this)">Copy</button>
+          <pre><code id="cd-config">{
+  "mcpServers": {
+    "sportbrobot": {
+      "command": "npx",
+      "args": ["mcp-remote", "{{ url }}"]
+    }
+  }
+}</code></pre>
+        </div>
+      </li>
+      <li>
+        <p>Fully quit Claude Desktop and start it again — a window close is not enough.</p>
+      </li>
+      <li>
+        <p>Ask something like <em>"How did I sleep last night?"</em> and approve the tool call.</p>
+      </li>
+    </ol>
+
+  {% elif client == 'claude-code' %}
+
+    <h2>Add the server</h2>
+    <ol class="steps-list">
+      <li>
+        <p>In a terminal, run:</p>
+        <div class="codebox">
+          <button class="copy-btn" type="button" onclick="copyToClipboard('cc-cmd', this)">Copy</button>
+          <pre><code id="cc-cmd">claude mcp add --transport http sportbrobot "{{ url }}"</code></pre>
+        </div>
+      </li>
+      <li>
+        <p>Prefer editing config by hand? Add this to <span class="kbd">~/.claude.json</span> instead:</p>
+        <div class="codebox">
+          <button class="copy-btn" type="button" onclick="copyToClipboard('cc-config', this)">Copy</button>
+          <pre><code id="cc-config">{
+  "mcpServers": {
+    "sportbrobot": {
+      "type": "http",
+      "url": "{{ url }}"
+    }
+  }
+}</code></pre>
+        </div>
+      </li>
+      <li>
+        <p>Start <span class="kbd">claude</span> and run <span class="kbd">/mcp</span> — SportBroBot should show as connected.</p>
+      </li>
+      <li>
+        <p>Try: <em>"Summarize my last three runs and tell me if my training load is trending up."</em></p>
+      </li>
+    </ol>
+
+  {% elif client == 'cursor' %}
+
+    <h2>Add the server</h2>
+    <ol class="steps-list">
+      <li>
+        <p>Open <span class="kbd">Cursor Settings</span> &rarr; <span class="kbd">MCP</span> and click <span class="kbd">Add new MCP server</span> (or edit <span class="kbd">~/.cursor/mcp.json</span> directly).</p>
+      </li>
+      <li>
+        <p>Use this configuration:</p>
+        <div class="codebox">
+          <button class="copy-btn" type="button" onclick="copyToClipboard('cur-config', this)">Copy</button>
+          <pre><code id="cur-config">{
+  "mcpServers": {
+    "sportbrobot": {
+      "url": "{{ url }}"
+    }
+  }
+}</code></pre>
+        </div>
+      </li>
+      <li>
+        <p>Save and check the MCP settings page — the server indicator should turn green with the tool list expanded.</p>
+      </li>
+      <li>
+        <p>In the agent panel, ask: <em>"What does my HRV trend look like this month?"</em></p>
+      </li>
+    </ol>
+
+  {% elif client == 'chatgpt' %}
+
+    <h2>Add the connector</h2>
+    <p class="guide-note">Remote MCP connectors in ChatGPT require a paid plan with developer mode enabled.</p>
+    <ol class="steps-list">
+      <li>
+        <p>Open <span class="kbd">ChatGPT Settings</span> &rarr; <span class="kbd">Connectors</span> &rarr; <span class="kbd">Advanced</span> and enable <span class="kbd">Developer mode</span>.</p>
+      </li>
+      <li>
+        <p>Choose <span class="kbd">Add connector</span> (custom / remote MCP server) and paste your URL:</p>
+        <div class="codebox codebox-line">
+          <code id="gpt-url">{{ url }}</code>
+          <button class="copy-btn" type="button" onclick="copyToClipboard('gpt-url', this)">Copy</button>
+        </div>
+        <p class="muted small">Name it <span class="kbd">sportbrobot</span>; no extra authentication is needed — the key is in the URL.</p>
+      </li>
+      <li>
+        <p>In a new chat, enable the connector from the tools menu, then ask away.</p>
+      </li>
+    </ol>
+
+  {% else %}
+
+    <h2>Generic MCP client</h2>
+    <ol class="steps-list">
+      <li>
+        <p>Add a remote MCP server (streamable HTTP transport) pointing at:</p>
+        <div class="codebox codebox-line">
+          <code id="gen-url">{{ url }}</code>
+          <button class="copy-btn" type="button" onclick="copyToClipboard('gen-url', this)">Copy</button>
+        </div>
+      </li>
+      <li>
+        <p>If your client sends headers instead of URLs, use <span class="kbd">Authorization: Bearer &lt;your key&gt;</span> against the same <span class="kbd">/mcp</span> endpoint.</p>
+      </li>
+    </ol>
+
+  {% endif %}
+
+  <h2>Troubleshooting</h2>
+  <dl class="trouble">
+    <dt>401 Unauthorized</dt>
+    <dd>Your token was probably rotated. Copy the full URL from your
+      <a href="/dashboard">dashboard</a> again — the <span class="kbd">apiKey</span> part is what authenticates you.</dd>
+    <dt>Connected, but tools return no data</dt>
+    <dd>Connect your Garmin account on the <a href="/dashboard">dashboard</a> first — the tools read live from your Garmin link.</dd>
+    <dt>The server doesn't show up at all</dt>
+    <dd>Fully restart the client after changing config files, and double-check the URL wasn't truncated when pasting.</dd>
+  </dl>
+
+  <h2>Try asking</h2>
+  <ul class="try-list">
+    <li>How did I sleep this week?</li>
+    <li>What's my HRV trend telling you?</li>
+    <li>Summarize my last three runs.</li>
+    <li>Am I ready for a hard workout tomorrow?</li>
+    <li>What race time do I project for a 10K?</li>
+  </ul>
+</section>
+{% endblock %}

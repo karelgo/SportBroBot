@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Sign up — SportBroBot{% endblock %}
+
+{% block content %}
+<section class="auth-wrap">
+  <div class="card auth-card">
+    <h1>Create your account</h1>
+    <p class="auth-sub">One account, one Garmin link, one MCP URL for every AI.</p>
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/signup" class="stack">
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" required autocomplete="email" autofocus placeholder="you@example.com">
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" name="password" required autocomplete="new-password" minlength="8" placeholder="At least 8 characters">
+      </label>
+      <label class="field">
+        <span>Confirm password</span>
+        <input type="password" name="password_confirm" required autocomplete="new-password" minlength="8" placeholder="Same again">
+      </label>
+      <button class="btn btn-primary btn-block" type="submit">Sign up</button>
+    </form>
+    <p class="auth-alt">Already have an account? <a href="/login">Log in</a></p>
+  </div>
+</section>
+{% endblock %}
