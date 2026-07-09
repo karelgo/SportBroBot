@@ -24,6 +24,10 @@ router = APIRouter()
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _MIN_PASSWORD_LEN = 8
 
+# Verified against when the email is unknown so login latency doesn't reveal
+# which addresses have accounts.
+_DUMMY_HASH = security.hash_password("sportbrobot-timing-equalizer")
+
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
@@ -86,7 +90,10 @@ def login(
     user = db.execute(
         select(User).where(User.email == _normalize_email(email))
     ).scalar_one_or_none()
-    if user is None or not security.verify_password(password, user.password_hash):
+    password_ok = security.verify_password(
+        password, user.password_hash if user is not None else _DUMMY_HASH
+    )
+    if user is None or not password_ok:
         return templates.TemplateResponse(
             request,
             "login.html",

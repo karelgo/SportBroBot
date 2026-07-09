@@ -2,10 +2,12 @@
 
 The streamable-HTTP FastMCP app is wrapped in :class:`TokenAuthMiddleware`,
 which resolves an ``sbb_`` MCP token (query param, Bearer header, or first
-path segment) to a user id stashed in a ContextVar. Tools are sync ``def``s —
-FastMCP executes them in a worker thread and contextvars propagate — and load
-data lazily through ``sportbrobot.garmin.service``, so importing this module
-never touches settings, the database, or the Garmin client.
+path segment) to a user id stashed in a ContextVar. Tools are ``async def``s
+that offload the blocking Garmin I/O to a worker thread via
+``anyio.to_thread.run_sync`` (FastMCP 1.x calls sync tools directly on the
+event loop, which would freeze the server); contextvars propagate into the
+thread. Data loads lazily through ``sportbrobot.garmin.service``, so importing
+this module never touches settings, the database, or the Garmin client.
 """
 
 from __future__ import annotations
@@ -31,8 +33,10 @@ readiness, race predictions), activities and body composition.
 
 Every tool operates on the account that owns the MCP token used to connect —
 no athlete id or credentials are ever passed as arguments. Dates are
-'YYYY-MM-DD' strings and default to today (server date). Data is fetched live
-from Garmin Connect with short-lived caching, so repeated calls are cheap.
+'YYYY-MM-DD' strings and default to today in the server's timezone — pass an
+explicit date when the athlete's local calendar day may differ. Data is
+fetched live from Garmin Connect with short-lived caching, so repeated calls
+are cheap.
 """
 
 # The token in the URL is the credential; DNS-rebinding Host checks would
@@ -255,7 +259,7 @@ def _norm_date(value: str | None, param: str = "date") -> str:
     return parsed.strftime("%Y-%m-%d")
 
 
-def _fetch(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
+def _fetch_sync(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
     """Run ``call(garmin_data)`` for the authenticated user, with TTL caching.
 
     Garmin link problems are converted into actionable tool errors; imports are
@@ -276,6 +280,20 @@ def _fetch(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
         raise ToolError(_NOT_LINKED_MSG) from None
     except garmin.GarminAuthRequired:
         raise ToolError(_REAUTH_MSG) from None
+    except ValueError as exc:
+        # The Garmin library validates inputs with ValueError (reversed date
+        # ranges, out-of-range limits, non-numeric ids). Surface them as
+        # actionable tool errors instead of opaque failures.
+        raise ToolError(f"Invalid arguments: {exc}") from None
+
+
+async def _fetch(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
+    """Async wrapper: run the blocking Garmin fetch in a worker thread.
+
+    The authenticated user's ContextVar propagates into the thread via
+    anyio's context copy.
+    """
+    return await to_thread.run_sync(lambda: _fetch_sync(cache_key, ttl, call))
 
 
 # --------------------------------------------------------------------------
@@ -284,15 +302,15 @@ def _fetch(cache_key: str, ttl: int, call: Callable[[Any], Any]) -> Any:
 
 
 @mcp.tool()
-def get_athlete_profile() -> dict[str, Any]:
+async def get_athlete_profile() -> dict[str, Any]:
     """Get the athlete's Garmin profile: name, gender, age, height, weight,
     unit system (metric/statute), VO2 max and key fitness settings. Call this
     first to personalize advice and to know which units the athlete uses."""
-    return _fetch("profile", PROFILE_TTL, lambda g: g.get_profile())
+    return await _fetch("profile", PROFILE_TTL, lambda g: g.get_profile())
 
 
 @mcp.tool()
-def get_daily_summary(date: str | None = None) -> dict[str, Any]:
+async def get_daily_summary(date: str | None = None) -> dict[str, Any]:
     """Get the wellness summary for one day: steps, calories, distance,
     intensity minutes, resting/min/max heart rate, stress and sleep totals.
 
@@ -300,11 +318,11 @@ def get_daily_summary(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"daily_summary:{day}", DAILY_TTL, lambda g: g.get_daily_summary(day))
+    return await _fetch(f"daily_summary:{day}", DAILY_TTL, lambda g: g.get_daily_summary(day))
 
 
 @mcp.tool()
-def list_activities(
+async def list_activities(
     limit: int = 10,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -324,9 +342,10 @@ def list_activities(
     """
     if limit < 1:
         raise ToolError("limit must be >= 1.")
+    limit = min(limit, 200)
     start = _norm_date(start_date, "start_date") if start_date is not None else None
     end = _norm_date(end_date, "end_date") if end_date is not None else None
-    return _fetch(
+    return await _fetch(
         f"activities:{limit}:{start}:{end}:{activity_type}",
         ACTIVITY_TTL,
         lambda g: g.list_activities(limit, start, end, activity_type),
@@ -334,18 +353,18 @@ def list_activities(
 
 
 @mcp.tool()
-def get_activity_details(activity_id: int | str) -> dict[str, Any]:
+async def get_activity_details(activity_id: int | str) -> dict[str, Any]:
     """Get one activity in depth: laps/splits, heart-rate zones, pace, power,
     cadence, elevation and training effect.
 
     Args:
         activity_id: Activity id as returned by list_activities.
     """
-    return _fetch(f"activity:{activity_id}", ACTIVITY_TTL, lambda g: g.get_activity(activity_id))
+    return await _fetch(f"activity:{activity_id}", ACTIVITY_TTL, lambda g: g.get_activity(activity_id))
 
 
 @mcp.tool()
-def get_sleep(date: str | None = None) -> dict[str, Any]:
+async def get_sleep(date: str | None = None) -> dict[str, Any]:
     """Get sleep for one night: total duration, sleep stages (deep, light,
     REM, awake), sleep score, overnight resting heart rate and restlessness.
 
@@ -353,11 +372,11 @@ def get_sleep(date: str | None = None) -> dict[str, Any]:
         date: Wake-up day as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"sleep:{day}", DAILY_TTL, lambda g: g.get_sleep(day))
+    return await _fetch(f"sleep:{day}", DAILY_TTL, lambda g: g.get_sleep(day))
 
 
 @mcp.tool()
-def get_hrv(date: str | None = None) -> dict[str, Any]:
+async def get_hrv(date: str | None = None) -> dict[str, Any]:
     """Get overnight heart-rate variability (HRV) for one day: last-night
     average, 7-day average, baseline range and HRV status
     (balanced/unbalanced/low).
@@ -366,11 +385,11 @@ def get_hrv(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"hrv:{day}", DAILY_TTL, lambda g: g.get_hrv(day))
+    return await _fetch(f"hrv:{day}", DAILY_TTL, lambda g: g.get_hrv(day))
 
 
 @mcp.tool()
-def get_training_status(date: str | None = None) -> dict[str, Any]:
+async def get_training_status(date: str | None = None) -> dict[str, Any]:
     """Get Garmin's training status for one day: productive/maintaining/
     detraining etc., acute and chronic training load, load balance and VO2 max
     trend.
@@ -379,11 +398,11 @@ def get_training_status(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"training_status:{day}", DAILY_TTL, lambda g: g.get_training_status(day))
+    return await _fetch(f"training_status:{day}", DAILY_TTL, lambda g: g.get_training_status(day))
 
 
 @mcp.tool()
-def get_training_readiness(date: str | None = None) -> dict[str, Any]:
+async def get_training_readiness(date: str | None = None) -> dict[str, Any]:
     """Get the training readiness score (0-100) for one day plus its inputs:
     sleep, recovery time, HRV status, acute load, sleep history and stress
     history. Use this to decide how hard today's session should be.
@@ -392,11 +411,11 @@ def get_training_readiness(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"training_readiness:{day}", DAILY_TTL, lambda g: g.get_training_readiness(day))
+    return await _fetch(f"training_readiness:{day}", DAILY_TTL, lambda g: g.get_training_readiness(day))
 
 
 @mcp.tool()
-def get_body_battery(start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+async def get_body_battery(start_date: str | None = None, end_date: str | None = None) -> list[dict[str, Any]]:
     """Get Body Battery (Garmin's 0-100 energy estimate) over a date range:
     charged/drained totals and a downsampled level curve per day.
 
@@ -406,11 +425,11 @@ def get_body_battery(start_date: str | None = None, end_date: str | None = None)
     """
     start = _norm_date(start_date, "start_date")
     end = _norm_date(end_date, "end_date") if end_date is not None else start
-    return _fetch(f"body_battery:{start}:{end}", DAILY_TTL, lambda g: g.get_body_battery(start, end))
+    return await _fetch(f"body_battery:{start}:{end}", DAILY_TTL, lambda g: g.get_body_battery(start, end))
 
 
 @mcp.tool()
-def get_stress(date: str | None = None) -> dict[str, Any]:
+async def get_stress(date: str | None = None) -> dict[str, Any]:
     """Get stress for one day: average and max stress level (0-100) and time
     spent in rest/low/medium/high stress.
 
@@ -418,11 +437,11 @@ def get_stress(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"stress:{day}", DAILY_TTL, lambda g: g.get_stress(day))
+    return await _fetch(f"stress:{day}", DAILY_TTL, lambda g: g.get_stress(day))
 
 
 @mcp.tool()
-def get_steps(start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+async def get_steps(start_date: str | None = None, end_date: str | None = None) -> list[dict[str, Any]]:
     """Get daily step counts over a date range, including step goal and
     distance per day.
 
@@ -432,11 +451,11 @@ def get_steps(start_date: str | None = None, end_date: str | None = None) -> dic
     """
     start = _norm_date(start_date, "start_date")
     end = _norm_date(end_date, "end_date") if end_date is not None else start
-    return _fetch(f"steps:{start}:{end}", DAILY_TTL, lambda g: g.get_steps(start, end))
+    return await _fetch(f"steps:{start}:{end}", DAILY_TTL, lambda g: g.get_steps(start, end))
 
 
 @mcp.tool()
-def get_heart_rate(date: str | None = None) -> dict[str, Any]:
+async def get_heart_rate(date: str | None = None) -> dict[str, Any]:
     """Get heart-rate data for one day: resting, min and max heart rate plus a
     downsampled intraday curve.
 
@@ -444,18 +463,18 @@ def get_heart_rate(date: str | None = None) -> dict[str, Any]:
         date: Day to fetch as 'YYYY-MM-DD'. Defaults to today.
     """
     day = _norm_date(date)
-    return _fetch(f"heart_rate:{day}", DAILY_TTL, lambda g: g.get_heart_rate(day))
+    return await _fetch(f"heart_rate:{day}", DAILY_TTL, lambda g: g.get_heart_rate(day))
 
 
 @mcp.tool()
-def get_race_predictions() -> dict[str, Any]:
+async def get_race_predictions() -> dict[str, Any]:
     """Get Garmin's current race time predictions for 5K, 10K, half marathon
     and marathon, based on the athlete's fitness level."""
-    return _fetch("race_predictions", PROFILE_TTL, lambda g: g.get_race_predictions())
+    return await _fetch("race_predictions", PROFILE_TTL, lambda g: g.get_race_predictions())
 
 
 @mcp.tool()
-def get_body_composition(start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
+async def get_body_composition(start_date: str | None = None, end_date: str | None = None) -> dict[str, Any]:
     """Get body composition measurements over a date range: weight, BMI, body
     fat percentage, muscle mass and body water (requires a connected scale or
     manual entries).
@@ -466,7 +485,7 @@ def get_body_composition(start_date: str | None = None, end_date: str | None = N
     """
     start = _norm_date(start_date, "start_date")
     end = _norm_date(end_date, "end_date") if end_date is not None else start
-    return _fetch(
+    return await _fetch(
         f"body_composition:{start}:{end}", DAILY_TTL, lambda g: g.get_body_composition(start, end)
     )
 

@@ -16,6 +16,8 @@ and the MCP server (this module never imports FastAPI):
 from __future__ import annotations
 
 import datetime
+import json
+import os
 import secrets
 import threading
 import time
@@ -106,9 +108,57 @@ def _purge_expired_pending_locked() -> None:
         del _pending_logins[pending_id]
 
 
+def _load_identity(garmin: Any) -> None:
+    """Populate display_name/full_name/unit_system after a raw login.
+
+    ``Garmin.login(return_on_mfa=True)`` returns before the library's own
+    profile fetch even when no MFA challenge occurs, leaving display_name
+    None — which would permanently break every endpoint that embeds it in
+    the URL path. Mirrors the library's post-login fetches.
+    """
+    if garmin.display_name is None:
+        last_exc: Exception | None = None
+        for _ in range(2):
+            try:
+                profile = garmin.client.connectapi("/userprofile-service/socialProfile")
+            except Exception as exc:  # noqa: BLE001 - retried, then surfaced clean
+                last_exc = exc
+                continue
+            if isinstance(profile, dict) and profile.get("displayName"):
+                garmin.display_name = profile.get("displayName")
+                garmin.full_name = profile.get("fullName", "")
+                break
+        else:
+            raise GarminConnectConnectionError(
+                "Garmin sign-in succeeded but the profile could not be loaded. "
+                "Try connecting again."
+            ) from last_exc
+    if garmin.unit_system is None:
+        try:
+            settings = garmin.client.connectapi(
+                "/userprofile-service/userprofile/user-settings"
+            )
+            garmin.unit_system = _dig(settings, "userData", "measurementSystem")
+        except Exception:  # noqa: BLE001 - unit system is a nice-to-have
+            pass
+
+
 def _build_login_success(garmin: Any, garmin_email: str) -> LoginSuccess:
+    token_blob = garmin.client.dumps()
+    # The bundled client can fall back to cookie-only auth whose session
+    # cannot be serialized: dumps() then holds only null DI tokens and every
+    # later restore would fail. Refuse to store such a link.
+    try:
+        parsed = json.loads(token_blob)
+    except (TypeError, ValueError):
+        parsed = None
+    if isinstance(parsed, dict) and not parsed.get("di_token"):
+        raise GarminConnectConnectionError(
+            "Garmin sign-in used a temporary fallback session that cannot be "
+            "saved. Wait a few minutes and try connecting again."
+        )
     return LoginSuccess(
-        token_blob=garmin.client.dumps(),
+        token_blob=token_blob,
         display_name=garmin.display_name,
         full_name=garmin.full_name,
         unit_system=garmin.unit_system,
@@ -124,6 +174,10 @@ def start_garmin_login(email: str, password: str) -> LoginSuccess | MfaPending:
     :func:`complete_garmin_mfa` can resume the very same instance — the MFA
     state lives on the object itself.
     """
+    # Garmin.login() silently falls back to the GARMINTOKENS env var as a
+    # tokenstore; on a host where it points at the operator's tokens, every
+    # user would "link" the operator's account without a credential check.
+    os.environ.pop("GARMINTOKENS", None)
     garmin = Garmin(email=email, password=password, return_on_mfa=True)
     with _clean_garmin_errors():
         status, _ = garmin.login()
@@ -137,17 +191,40 @@ def start_garmin_login(email: str, password: str) -> LoginSuccess | MfaPending:
                 expires_at=time.monotonic() + _PENDING_TTL_SECONDS,
             )
         return MfaPending(pending_id=pending_id)
-    return _build_login_success(garmin, email)
+    with _clean_garmin_errors():
+        _load_identity(garmin)
+        return _build_login_success(garmin, email)
 
 
 def complete_garmin_mfa(pending_id: str, code: str) -> LoginSuccess:
-    """Finish a pending MFA login. Raises KeyError if unknown or expired."""
+    """Finish a pending MFA login. Raises KeyError if unknown or expired.
+
+    The pending entry is only consumed on success: after a wrong code the
+    user can retry with a fresh code, and after a transient connection error
+    the same code can be resubmitted.
+    """
     with _pending_lock:
         _purge_expired_pending_locked()
-        entry = _pending_logins.pop(pending_id)
-    with _clean_garmin_errors():
+        entry = _pending_logins[pending_id]
+    try:
         entry.garmin.resume_login({}, code)
-    return _build_login_success(entry.garmin, entry.garmin_email)
+    except GarminConnectAuthenticationError as exc:
+        raise GarminConnectAuthenticationError(
+            "Garmin did not accept that code. Check it and try again."
+        ) from exc
+    except GarminConnectTooManyRequestsError as exc:
+        raise GarminConnectTooManyRequestsError(
+            "Garmin is rate-limiting login attempts. Wait a few minutes and try again."
+        ) from exc
+    except GarminConnectConnectionError as exc:
+        raise GarminConnectConnectionError(
+            "Could not reach Garmin Connect. Try again shortly."
+        ) from exc
+    with _pending_lock:
+        _pending_logins.pop(pending_id, None)
+    with _clean_garmin_errors():
+        _load_identity(entry.garmin)
+        return _build_login_success(entry.garmin, entry.garmin_email)
 
 
 def get_client_for_user(db: Session, user_id: int) -> GarminData:
@@ -468,14 +545,24 @@ class GarminData:
         self._on_tokens_rotated = on_tokens_rotated
         self._token_blob = self._garmin.client.dumps()
 
-    def _call(self, method_name: str, /, *args: Any) -> Any:
+    def _call(self, method_name: str, /, *args: Any, **kwargs: Any) -> Any:
         method = getattr(self._garmin, method_name)
         try:
-            result = method(*args)
+            result = method(*args, **kwargs)
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthRequired(
                 "The Garmin session has expired; please reconnect the account."
             ) from exc
+        except GarminConnectConnectionError as exc:
+            # A dead/revoked session surfaces as "API Error 401/403" here:
+            # the client's refresh swallows its own failures and re-raises
+            # the original status as a connection error.
+            message = str(exc)
+            if "API Error 401" in message or "API Error 403" in message:
+                raise GarminAuthRequired(
+                    "The Garmin session has expired; please reconnect the account."
+                ) from exc
+            raise
         self._maybe_rotate_tokens()
         return result
 
@@ -510,17 +597,30 @@ class GarminData:
         end_date: str | None = None,
         activity_type: str | None = None,
     ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 200))
         if start_date or end_date:
             end = end_date or _today()
             start = start_date or (
                 datetime.date.fromisoformat(end) - datetime.timedelta(days=90)
             ).isoformat()
-            raw = self._call("get_activities_by_date", start, end, activity_type)
+            # One bounded request: the library's get_activities_by_date
+            # paginates through the athlete's entire history regardless of
+            # how few results the caller wants.
+            params = {"startDate": start, "endDate": end, "start": "0", "limit": str(limit)}
+            if activity_type:
+                params["activityType"] = str(activity_type)
+            raw = self._call(
+                "connectapi",
+                "/activitylist-service/activities/search/activities",
+                params=params,
+            )
         else:
             raw = self._call("get_activities", 0, limit, activity_type)
+        if isinstance(raw, dict):
+            raw = raw.get("activityList")  # dict-wrapped shape occurs in practice
         if not isinstance(raw, list):
             return []
-        return [_trim_activity_summary(activity) for activity in raw[: max(limit, 0)]]
+        return [_trim_activity_summary(activity) for activity in raw[:limit]]
 
     def get_activity(self, activity_id: int | str) -> dict[str, Any]:
         raw = self._call("get_activity", str(activity_id))

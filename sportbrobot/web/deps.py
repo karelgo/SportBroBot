@@ -95,6 +95,8 @@ def get_mcp_url(db: Session, user: User) -> str:
             db.flush()
             row = None
     if row is None:
+        from sqlalchemy.exc import IntegrityError
+
         token = security.generate_mcp_token()
         db.add(
             McpToken(
@@ -103,5 +105,14 @@ def get_mcp_url(db: Session, user: User) -> str:
                 token_encrypted=security.encrypt_text(token),
             )
         )
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # Two first-time requests raced on the unique user_id; use the
+            # winner's token.
+            db.rollback()
+            row = db.execute(
+                select(McpToken).where(McpToken.user_id == user.id)
+            ).scalar_one()
+            token = security.decrypt_text(row.token_encrypted)
     return f"{get_settings().base_url}/mcp?apiKey={token}"

@@ -231,13 +231,17 @@ def garmin_mfa(
         result = garmin_service.complete_garmin_mfa(pending_id, mfa_code.strip())
     except KeyError:
         return _dashboard_redirect("MFA session expired, try again.")
-    except GarminConnectAuthenticationError:
-        # The pending login is consumed on failure, so the code can't be retried.
-        return _dashboard_redirect(
-            "The MFA code was not accepted — start the Garmin connection again."
+    except (
+        GarminConnectAuthenticationError,
+        GarminConnectTooManyRequestsError,
+        GarminConnectConnectionError,
+    ) as exc:
+        # The pending login survives failures, so the user can retry the code.
+        return templates.TemplateResponse(
+            request,
+            "garmin_mfa.html",
+            {"user": user, "pending_id": pending_id, "error": str(exc)},
         )
-    except (GarminConnectTooManyRequestsError, GarminConnectConnectionError) as exc:
-        return _dashboard_redirect(str(exc))
 
     _save_link(db, user, result)
     garmin_service.invalidate_user_cache(user.id)
@@ -264,6 +268,8 @@ def mcp_rotate(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy.exc import IntegrityError
+
     row = db.execute(
         select(McpToken).where(McpToken.user_id == user.id)
     ).scalar_one_or_none()
@@ -278,5 +284,8 @@ def mcp_rotate(
             token_encrypted=security.encrypt_text(token),
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()  # a concurrent rotate won; its token is now current
     return _dashboard_redirect("Token rotated")

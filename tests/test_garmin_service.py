@@ -36,6 +36,7 @@ class FakeClient:
     def __init__(self) -> None:
         self.blob = INITIAL_BLOB
         self.loaded_with: str | None = None
+        self.api_responses: dict[str, Any] = {}
 
     def loads(self, blob: str) -> None:
         self.loaded_with = blob
@@ -43,6 +44,12 @@ class FakeClient:
 
     def dumps(self) -> str:
         return self.blob
+
+    def connectapi(self, path: str, **kwargs: Any) -> Any:
+        value = self.api_responses.get(path)
+        if isinstance(value, Exception):
+            raise value
+        return value
 
 
 class FakeGarmin:
@@ -143,6 +150,9 @@ class FakeGarmin:
     def get_body_composition(self, startdate, enddate=None):
         return self._respond("get_body_composition", startdate, enddate)
 
+    def connectapi(self, path, **kwargs):
+        return self._respond("connectapi", path, kwargs.get("params"))
+
 
 @pytest.fixture(autouse=True)
 def _clean_state():
@@ -239,6 +249,131 @@ def test_mfa_flow_preserves_instance(fake_garmin):
 def test_complete_mfa_unknown_id_raises_keyerror(fake_garmin):
     with pytest.raises(KeyError):
         service.complete_garmin_mfa("nonexistent", "123456")
+
+
+def test_login_loads_identity_when_library_leaves_it_unset(fake_garmin):
+    """Garmin.login(return_on_mfa=True) returns before the library's profile
+    fetch even without an MFA challenge; the service must fetch it itself."""
+
+    class Bare(fake_garmin):
+        def _mark_logged_in(self):
+            self.client.blob = FRESH_BLOB  # login succeeds but sets no identity
+
+    Bare.created = []
+    import sportbrobot.garmin.service as service_module
+
+    original = service_module.Garmin
+    service_module.Garmin = Bare
+    try:
+        fake_client_profile = {"displayName": "bare-athlete", "fullName": "Bare Athlete"}
+        # Pre-wire responses on the class so the instance created inside
+        # start_garmin_login picks them up via its FakeClient.
+        result = None
+        try:
+            service.start_garmin_login("a@b.c", "pw")
+        except service.GarminConnectConnectionError:
+            pass  # empty api_responses -> profile fetch fails cleanly
+        Bare.created.clear()
+
+        # Now with a working profile endpoint:
+        class Bare2(Bare):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.client.api_responses = {
+                    "/userprofile-service/socialProfile": fake_client_profile,
+                    "/userprofile-service/userprofile/user-settings": {
+                        "userData": {"measurementSystem": "metric"}
+                    },
+                }
+
+        Bare2.created = []
+        service_module.Garmin = Bare2
+        result = service.start_garmin_login("a@b.c", "pw")
+        assert isinstance(result, service.LoginSuccess)
+        assert result.display_name == "bare-athlete"
+        assert result.full_name == "Bare Athlete"
+        assert result.unit_system == "metric"
+    finally:
+        service_module.Garmin = original
+
+
+def test_login_rejects_unserializable_fallback_session(fake_garmin):
+    """A cookie-only fallback login dumps null DI tokens; storing that blob
+    would create a link that can never be restored."""
+    null_blob = json.dumps(
+        {"di_token": None, "di_refresh_token": None, "di_client_id": None}
+    )
+
+    class Fallback(fake_garmin):
+        def _mark_logged_in(self):
+            self.display_name = "athlete-42"
+            self.full_name = "Test Athlete"
+            self.unit_system = "metric"
+            self.client.blob = null_blob
+
+    Fallback.created = []
+    import sportbrobot.garmin.service as service_module
+
+    original = service_module.Garmin
+    service_module.Garmin = Fallback
+    try:
+        with pytest.raises(service.GarminConnectConnectionError):
+            service.start_garmin_login("a@b.c", "pw")
+    finally:
+        service_module.Garmin = original
+
+
+def test_wrong_mfa_code_keeps_pending_entry_for_retry(fake_garmin):
+    from garminconnect import GarminConnectAuthenticationError
+
+    fake_garmin.mfa = True
+    pending = service.start_garmin_login("a@b.c", "pw")
+    parked = fake_garmin.created[0]
+
+    original_resume = parked.resume_login
+
+    def failing_resume(client_state, code):
+        raise GarminConnectAuthenticationError("bad code")
+
+    parked.resume_login = failing_resume
+    with pytest.raises(GarminConnectAuthenticationError):
+        service.complete_garmin_mfa(pending.pending_id, "000000")
+
+    # Entry survived; a corrected code succeeds on the same instance.
+    parked.resume_login = original_resume
+    success = service.complete_garmin_mfa(pending.pending_id, "123456")
+    assert isinstance(success, service.LoginSuccess)
+    assert pending.pending_id not in service._pending_logins
+
+
+def test_data_call_maps_401_connection_error_to_auth_required(fake_garmin):
+    from garminconnect import GarminConnectConnectionError as ConnError
+
+    data, fake = make_garmin_data(
+        fake_garmin,
+        {"get_user_summary": ConnError("API Error 401 - Unauthorized")},
+    )
+    with pytest.raises(service.GarminAuthRequired):
+        data.get_daily_summary(TODAY)
+
+
+def test_data_call_leaves_other_connection_errors_alone(fake_garmin):
+    from garminconnect import GarminConnectConnectionError as ConnError
+
+    data, fake = make_garmin_data(
+        fake_garmin,
+        {"get_user_summary": ConnError("API Error 500 - upstream boom")},
+    )
+    with pytest.raises(ConnError):
+        data.get_daily_summary(TODAY)
+
+
+def test_start_login_ignores_garmintokens_env(fake_garmin, monkeypatch):
+    monkeypatch.setenv("GARMINTOKENS", "/some/operator/tokens")
+    service.start_garmin_login("a@b.c", "pw")
+    import os
+
+    assert "GARMINTOKENS" not in os.environ
 
 
 def test_mfa_pending_expires(fake_garmin):
@@ -554,14 +689,33 @@ def test_list_activities_trims_and_limits(fake_garmin):
 
 def test_list_activities_by_date(fake_garmin):
     data, fake = make_garmin_data(
-        fake_garmin, {"get_activities_by_date": [_activity(1), _activity(2)]}
+        fake_garmin, {"connectapi": [_activity(1), _activity(2)]}
     )
     result = data.list_activities(
         limit=1, start_date="2026-07-01", end_date="2026-07-08", activity_type="running"
     )
 
-    assert ("get_activities_by_date", ("2026-07-01", "2026-07-08", "running")) in fake.calls
+    name, (path, params) = next(c for c in fake.calls if c[0] == "connectapi")
+    assert path == "/activitylist-service/activities/search/activities"
+    assert params["startDate"] == "2026-07-01"
+    assert params["endDate"] == "2026-07-08"
+    assert params["activityType"] == "running"
+    assert params["limit"] == "1"  # bounded: never walks the whole history
     assert len(result) == 1
+
+
+def test_list_activities_unwraps_activity_list_dict(fake_garmin):
+    data, fake = make_garmin_data(
+        fake_garmin, {"get_activities": {"activityList": [_activity(1), _activity(2)]}}
+    )
+    result = data.list_activities(limit=10)
+    assert len(result) == 2
+
+
+def test_list_activities_clamps_limit(fake_garmin):
+    data, fake = make_garmin_data(fake_garmin, {"get_activities": []})
+    data.list_activities(limit=5000)
+    assert ("get_activities", (0, 200, None)) in fake.calls
 
 
 ACTIVITY_DETAIL = {

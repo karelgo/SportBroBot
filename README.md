@@ -91,7 +91,10 @@ persisted under `./data/`). For deployments, see [.env.example](.env.example):
 - Garmin **credentials are used once** to obtain OAuth tokens and never
   persisted; the token bundle is encrypted (Fernet) at rest.
 - MCP tokens are stored as SHA-256 hashes for lookup; treat your MCP URL like
-  a password and **rotate it** from the dashboard if it leaks.
+  a password and **rotate it** from the dashboard if it leaks. Note that the
+  `?apiKey=` form appears in server access logs — clients that support custom
+  headers (Claude Code, Cursor) can use `Authorization: Bearer <token>`
+  against plain `/mcp` instead.
 - All Garmin tools are **read-only**.
 - App sessions are signed, HTTP-only cookies.
 
